@@ -167,6 +167,15 @@ pub struct Config {
 }
 
 impl Config {
+
+    pub fn new() -> Self {
+        let mut config = Config::parse();
+        if let Ok(load_config) = config.load_config() {
+            config = config.merge(load_config);
+        }
+        config
+    }
+
     /// Loads the default configuration settings.
     ///
     /// This function first attempts to load the configuration file, and if it fails, it returns the default configuration.
@@ -211,7 +220,7 @@ impl Config {
     /// # Returns
     ///
     /// The loaded configuration.
-    fn load_from_buffer<R>(mut reader: R) -> Self
+    pub fn load_from_buffer<R>(mut reader: R) -> Self
     where
         R: Read,
     {
@@ -593,5 +602,27 @@ mod tests {
     #[test]
     fn help_can_be_generated() {
         Config::parse();
+    }
+
+    #[test]
+    fn test_parse_duration() {
+        assert_eq!(parse_duration("1000"), Ok(Duration::from_secs(1000)));
+        assert!(parse_duration("-1000").is_err());
+    }
+
+    #[test]
+    fn test_merge() {
+        let mut conf1 = Config::default();
+        let mut conf2 = Config::default();
+        conf1.todo_path = Some("path/to/todo/file".to_string());
+        conf2.archive_path = Some("path/to/archive_path/file".to_string());
+
+        conf1.window_title = Some("Window title".to_string());
+        conf2.window_title = Some("Different title".to_string());
+
+        let new_conf = conf1.merge(conf2);
+        assert_eq!(new_conf.todo_path, Some("path/to/todo/file".to_string()));
+        assert_eq!(new_conf.archive_path, Some("path/to/archive_path/file".to_string()));
+        assert_eq!(new_conf.window_title, Some("Window title".to_string()));
     }
 }

@@ -3,8 +3,12 @@ mod ui_event;
 pub use ui_event::*;
 
 use crate::{
-    config::Config, file_worker::FileWorkerCommands, layout::Layout, layout::Render,
-    todo::autocomplete, ToDo,
+    config::Config,
+    file_worker::{FileWorker, FileWorkerCommands},
+    layout::Layout,
+    layout::Render,
+    todo::autocomplete,
+    ToDo,
 };
 use crossterm::{
     self,
@@ -16,6 +20,7 @@ use crossterm::{
     ExecutableCommand,
 };
 use std::{
+    error::Error,
     io::{self, Result as ioResult},
     sync::mpsc::Sender,
     sync::{Arc, Mutex},
@@ -32,7 +37,7 @@ use tui::{
 use tui_input::{backend::crossterm::EventHandler, Input};
 
 /// Enum representing the different modes of the UI.
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum Mode {
     Input,
     Edit,
@@ -87,6 +92,25 @@ impl UI {
         }
     }
 
+    pub fn build(config: &Config) -> Result<UI, Box<dyn Error>> {
+        let todo = Arc::new(Mutex::new(ToDo::new(&config)));
+        let file_worker = FileWorker::new(
+            config.get_todo_path(),
+            config.get_archive_path(),
+            todo.clone(),
+        );
+
+        file_worker.load()?;
+        let tx = file_worker.run(config.get_autosave_duration(), config.get_file_watcher());
+
+        Ok(UI::new(
+            Layout::from_str(&config.get_layout(), todo.clone(), &config)?,
+            todo.clone(),
+            tx.clone(),
+            &config,
+        ))
+    }
+
     /// Updates the input chunk of the UI based on the main chunk's dimensions.
     ///
     /// This method recalculates the position and size of the input chunk based on the dimensions
@@ -112,31 +136,40 @@ impl UI {
     ///
     /// An `ioResult` indicating the success of running the user interface.
     pub fn run(&mut self) -> ioResult<()> {
-        // setup terminal
-        enable_raw_mode()?;
-        let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        fn run_ui(this: &mut UI) -> ioResult<()> {
+            // setup terminal
+            enable_raw_mode()?;
+            let mut stdout = io::stdout();
+            execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
 
-        let mut backend = CrosstermBackend::new(stdout);
-        backend.execute(SetTitle(self.window_title.clone()))?;
+            let mut backend = CrosstermBackend::new(stdout);
+            backend.execute(SetTitle(this.window_title.clone()))?;
 
-        let mut terminal = Terminal::new(backend)?;
-        terminal.hide_cursor()?;
-        self.update_chunk(terminal.size()?);
+            let mut terminal = Terminal::new(backend)?;
+            terminal.hide_cursor()?;
+            this.update_chunk(terminal.size()?);
 
-        self.draw(&mut terminal)?;
-        self.main_loop(&mut terminal)?;
+            this.draw(&mut terminal)?;
+            this.main_loop(&mut terminal)?;
 
-        // restore terminal
-        disable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
-        terminal.show_cursor()?;
+            // restore terminal
+            disable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+            terminal.show_cursor()?;
 
-        Ok(())
+            Ok(())
+        }
+
+        if let Err(e) = run_ui(self) {
+            self.tx.send(FileWorkerCommands::Exit).unwrap();
+            Err(e)
+        } else {
+            Ok(())
+        }
     }
 
     /// Handles the main event loop of the UI.
@@ -153,7 +186,7 @@ impl UI {
         let mut new_version;
         loop {
             if event::poll(self.list_refresh_rate)? {
-                if self.handle_event()? {
+                if self.process_event()? {
                     break;
                 }
                 version = self.data.lock().unwrap().get_version();
@@ -212,8 +245,12 @@ impl UI {
     /// # Returns
     ///
     /// An `ioResult` indicating whether the application should exit.
-    fn handle_event(&mut self) -> ioResult<bool> {
-        let e = read()?;
+    fn process_event(&mut self) -> ioResult<bool> {
+        self.handle_event_window(read()?);
+        Ok(self.quit)
+    }
+
+    fn handle_event_window(&mut self, e: Event) {
         match e {
             Event::Resize(width, height) => {
                 log::debug!("Resize event: width {width}, height {height}");
@@ -282,7 +319,6 @@ impl UI {
             },
             _ => {}
         }
-        Ok(self.quit)
     }
 }
 
@@ -328,5 +364,101 @@ impl HandleEvent for UI {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+    use crossterm::event::{KeyEvent, KeyModifiers};
+    use test_log::test;
+
+    use super::*;
+
+    fn default_ui() -> Result<UI, Box<dyn Error>> {
+        let config = Config::load_from_buffer(
+            format!(
+                r#"
+            todo_path = "{}todo.txt"
+
+            [[list_keybind.events]]
+            event = "ListDown"
+            key.Char = "j"
+
+            [[list_keybind.events]]
+            event = "Select"
+            key = "Enter"
+
+            [[list_keybind.events]]
+            event = "InsertMode"
+            key.Char = "I"
+
+            [[list_keybind.events]]
+            event = "EditMode"
+            key.Char = "E"
+
+            [[list_keybind.events]]
+            event = "Quit"
+            key.Char = "q"
+
+            [[list_keybind.events]]
+            event = "Save"
+            key.Char = "S"
+
+            [[list_keybind.events]]
+            event = "Load"
+            key.Char = "L"
+            "#,
+                env::var("TODO_TUI_TEST_DIR")?
+            )
+            .as_bytes(),
+        );
+        UI::build(&config)
+    }
+
+    #[test]
+    fn test_behaviour() -> Result<(), Box<dyn Error>> {
+        let mut ui = default_ui()?;
+        ui.update_chunk(Rect::new(0, 0, 20, 20));
+
+        let event = Event::Resize(50, 50);
+        ui.handle_event_window(event);
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        ui.handle_event_window(event);
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        ui.handle_event_window(event);
+        assert!(ui.data.lock().unwrap().get_active().is_some());
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('I'), KeyModifiers::NONE));
+        ui.handle_event_window(event);
+        assert_eq!(ui.mode, Mode::Input);
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        ui.handle_event_window(event);
+        assert_eq!(ui.mode, Mode::Normal);
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE));
+        ui.handle_event_window(event);
+        assert_eq!(ui.mode, Mode::Edit);
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        ui.handle_event_window(event);
+        assert_eq!(ui.mode, Mode::Normal);
+
+        assert!(!ui.quit);
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+        ui.handle_event_window(event);
+        assert!(ui.quit);
+        ui.quit = false;
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::NONE));
+        ui.handle_event_window(event);
+
+        let event = Event::Key(KeyEvent::new(KeyCode::Char('L'), KeyModifiers::NONE));
+        ui.handle_event_window(event);
+
+        Ok(())
     }
 }

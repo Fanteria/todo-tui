@@ -1,0 +1,5 @@
+[alias]
+lcov = "llvm-cov --lcov --output-path lcov.info"
+
+[env]
+TODO_TUI_TEST_DIR = { value = "test_files/", relative = true }
