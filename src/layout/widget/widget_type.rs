@@ -8,8 +8,9 @@ use std::str::FromStr;
 
 /// An enumeration representing different types of widgets used in the application.
 /// Widgets are UI components with specific functionalities, such as task lists, project lists, and previews.
-#[derive(PartialEq, Debug, Copy, Clone, Serialize, Deserialize, ValueEnum)]
+#[derive(Default, PartialEq, Debug, Copy, Clone, Serialize, Deserialize, ValueEnum)]
 pub enum WidgetType {
+    #[default]
     List,
     Done,
     Project,

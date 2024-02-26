@@ -1,6 +1,8 @@
 mod ui_event;
+mod ui_state;
 
 pub use ui_event::*;
+pub use ui_state::*;
 
 use crate::{
     config::Config,
@@ -25,6 +27,7 @@ use std::{
     sync::mpsc::Sender,
     sync::{Arc, Mutex},
     time::Duration,
+    path::PathBuf,
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -57,6 +60,7 @@ pub struct UI {
     window_title: String,
     list_refresh_rate: Duration,
     active_color: Color,
+    save_state_path: Option<PathBuf>,
 }
 
 impl UI {
@@ -89,11 +93,20 @@ impl UI {
             window_title: config.get_window_title(),
             list_refresh_rate: config.get_list_refresh_rate(),
             active_color: config.get_active_color(),
+            save_state_path: config.get_save_state_path(),
         }
     }
 
     pub fn build(config: &Config) -> Result<UI, Box<dyn Error>> {
-        let todo = Arc::new(Mutex::new(ToDo::new(&config)));
+        let mut todo = ToDo::new(&config);
+
+        if let Some(path) = &config.get_save_state_path() {
+            let state = UIState::load(path);
+            let (_active, todo_state) = (state.active, state.todo_state);
+            todo.update_state(todo_state);
+        }
+
+        let todo = Arc::new(Mutex::new(todo));
         let file_worker = FileWorker::new(
             config.get_todo_path(),
             config.get_archive_path(),
@@ -103,9 +116,12 @@ impl UI {
         file_worker.load()?;
         let tx = file_worker.run(config.get_autosave_duration(), config.get_file_watcher());
 
+        let layout = Layout::from_str(&config.get_layout(), todo.clone(), &config)?;
+
+
         Ok(UI::new(
-            Layout::from_str(&config.get_layout(), todo.clone(), &config)?,
-            todo.clone(),
+            layout,
+            todo,
             tx.clone(),
             &config,
         ))
@@ -330,7 +346,14 @@ impl HandleEvent for UI {
     fn handle_event(&mut self, event: UIEvent) -> bool {
         use UIEvent::*;
         match event {
-            Quit => self.quit = true,
+            Quit => {
+                if let Some(path) = &self.save_state_path {
+                    if let Err (e) = UIState::new(&self.layout, &self.data.lock().unwrap()).save(path) {
+                        log::error!("Error while saveing UI state: {}", e);
+                    }
+                }
+                self.quit = true;
+            }
             InsertMode => {
                 self.mode = Mode::Input;
                 self.layout.unfocus();

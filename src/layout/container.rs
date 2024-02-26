@@ -206,6 +206,14 @@ impl Container {
         }
         Err(ToDoError::WidgetDoesNotExist)
     }
+
+    pub fn get_active_type(&self) -> WidgetType {
+        if let IItem::Widget(w) = self.actual_item() {
+            return w.data.widget_type();
+        };
+        panic!("The current item is expected to be a widget.");
+    }
+
 }
 
 impl Render for Container {
@@ -227,16 +235,6 @@ impl Render for Container {
             .iter_mut()
             .enumerate()
             .for_each(|(i, item)| item.update_chunk(chunks[i]));
-    }
-}
-
-#[cfg(test)]
-impl Container {
-    pub fn get_active_type(&self) -> WidgetType {
-        if let IItem::Widget(w) = self.actual_item() {
-            return w.data.widget_type();
-        };
-        panic!("The current item is expected to be a widget.");
     }
 }
 

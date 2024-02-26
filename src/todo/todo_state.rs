@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use todo_txt::Task;
 
@@ -6,7 +7,7 @@ use crate::config::ToDoConfig;
 use super::{task_list::TaskSort, ToDo};
 
 /// Enum to represent the state of ToDo data (pending or done).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum ToDoData {
     Pending,
     Done,
@@ -72,13 +73,13 @@ impl ToDoCategory {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum FilterState {
     Select,
     Remove,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct ToDoState {
     pub active: Option<(ToDoData, usize)>,
     pub project_filters: BTreeMap<String, FilterState>,
@@ -139,4 +140,3 @@ impl ToDoState {
         }
     }
 }
-

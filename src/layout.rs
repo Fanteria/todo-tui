@@ -302,6 +302,10 @@ impl Layout {
             .unwrap() // TODO remove
             .handle_key(&event.code)
     }
+
+    pub fn get_active_widget(&self) -> WidgetType {
+        self.actual.borrow().get_active_type()
+    }
 }
 
 impl Render for Layout {
@@ -356,7 +360,7 @@ mod tests {
     fn test_basic_movement() -> ToDoRes<()> {
         let mut l = mock_layout();
         let check_type = |widget_type, l: &Layout| -> ToDoRes<()> {
-            let active = l.actual.as_ref().borrow().get_active_type();
+            let active = l.get_active_widget();
             if active != widget_type {
                 panic!("Active widget must be {:?} not {:?}.", widget_type, active)
             }

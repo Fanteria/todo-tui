@@ -1,11 +1,11 @@
 pub mod autocomplete;
 pub mod category_list;
 pub mod parser;
-pub mod state;
+pub mod todo_state;
 pub mod task_list;
 
 pub use self::{
-    autocomplete::autocomplete, category_list::CategoryList, parser::Parser, state::*,
+    autocomplete::autocomplete, category_list::CategoryList, parser::Parser, todo_state::*,
     task_list::TaskList,
 };
 
@@ -316,6 +316,14 @@ impl ToDo {
     /// The number of tasks in the specified ToDo data.
     pub fn len(&self, data: ToDoData) -> usize {
         self.get_filtered_and_sorted(data).len()
+    }
+
+    pub fn get_state(&self) -> &ToDoState {
+        &self.state
+    }
+
+    pub fn update_state(&mut self, state: ToDoState) {
+        self.state = state
     }
 }
 

@@ -102,6 +102,9 @@ pub struct Config {
     #[arg(short = 'd', long, value_parser = parse_duration, value_name = "DURATION")]
     autosave_duration: Option<Duration>,
 
+    #[arg(long, value_name = "FILE", help_heading = "export")]
+    save_state_path: Option<PathBuf>,
+
     #[arg(long, value_name = "FILE")]
     log_file: Option<PathBuf>,
 
@@ -255,6 +258,7 @@ impl Config {
             pending_active_color: self.pending_active_color.or(other.pending_active_color),
             done_active_color: self.done_active_color.or(other.done_active_color),
             autosave_duration: self.autosave_duration.or(other.autosave_duration),
+            save_state_path: self.save_state_path.or(other.save_state_path),
             log_file: self.log_file.or(other.log_file),
             log_format: self.log_format.or(other.log_format),
             log_level: self.log_level.or(other.log_level),
@@ -296,6 +300,7 @@ impl Config {
             pending_active_color: Some(self.get_pending_active_color()),
             done_active_color: Some(self.get_done_active_color()),
             autosave_duration: Some(self.get_autosave_duration()),
+            save_state_path: self.get_save_state_path(),
             log_file: Some(self.get_log_file()),
             log_format: Some(self.get_log_format()),
             log_level: Some(self.get_log_level()),
@@ -395,6 +400,10 @@ impl Config {
 
     pub fn get_autosave_duration(&self) -> Duration {
         self.autosave_duration.unwrap_or(Duration::from_secs(900))
+    }
+
+    pub fn get_save_state_path(&self) -> Option<PathBuf> {
+        self.save_state_path.clone()
     }
 
     fn get_log_file(&self) -> PathBuf {
